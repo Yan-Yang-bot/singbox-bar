@@ -37,8 +37,8 @@ To launch at login: System Settings → General → Login Items → add SingBoxB
   **停止**：先关系统代理，再结束所有 `sing-box` 进程（包括不是本工具启动的）。
 - The sing-box binary path, config file and network service can all be changed from the menu.
   菜单中可重新选择 sing-box 程序路径、配置文件和网络服务。
-- Menu option to toggle the UI between English and Chinese (defaults to the system language).
-  菜单中可一键切换中英文界面（默认跟随系统语言）。
+- Menu option to toggle the UI between English and Chinese. Initial language: Chinese if the macOS language is Simplified or Traditional Chinese, English otherwise. Your choice is remembered.
+  菜单中可一键切换中英文界面。初始语言：macOS 系统语言为简体或繁体中文时用中文，其余一律用英文。切换后会记住你的选择。
 - Log file: `~/Library/Logs/SingBoxBar.log`
   日志文件：`~/Library/Logs/SingBoxBar.log`
 
