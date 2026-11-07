@@ -2,9 +2,9 @@
 
 A tiny macOS menu-bar app that starts/stops [sing-box](https://github.com/SagerNet/sing-box) and toggles the system SOCKS proxy in one click — so you always know whether sing-box is running.
 
-一个 macOS 菜单栏小工具：一键启动/停止 sing-box，同时开关系统 SOCKS 代理，右上角随时显示运行状态。
+一个 macOS 菜单栏小工具：一键启动/停止 [sing-box](https://github.com/SagerNet/sing-box)，同时开关系统 SOCKS 代理，右上角随时显示运行状态。
 
-## 安装
+## Installation / 安装
 
 ```bash
 git clone https://github.com/Yan-Yang-bot/singbox-bar.git
@@ -12,32 +12,45 @@ cd singbox-bar
 bash install-singbox-bar.sh
 ```
 
-需要苹果命令行工具（脚本会提示 `xcode-select --install`）。App 安装到 `~/Applications/SingBoxBar.app`。
-想开机自动运行：系统设置 → 通用 → 登录项 → 添加 SingBoxBar。
+Requires Apple Command Line Tools (the script will prompt `xcode-select --install` if missing). The app is installed to `~/Applications/SingBoxBar.app`.
 
-## 图标含义
+需要苹果命令行工具（如未安装，脚本会提示运行 `xcode-select --install`）。App 安装到 `~/Applications/SingBoxBar.app`。
 
-| 图标 | 状态 |
-|---|---|
-| 🟢 `● SB` | sing-box 运行中，系统 SOCKS 代理已开 |
-| 🟠 `◐ SB` | sing-box 在后台运行，但系统代理没开 |
-| 🔴 `⚠ SB` | 代理开着但 sing-box 没运行（会断网） |
-| ⚪ `○ SB` | 已停止 |
+To launch at login: System Settings → General → Login Items → add SingBoxBar.
 
-## 功能
+开机自动运行：系统设置 → 通用 → 登录项 → 添加 SingBoxBar。
 
-- **启动**：运行 `sing-box run -c <config>`，并把所选网络服务（默认 Wi-Fi）的 SOCKS 代理指向配置中第一个 `socks` / `mixed` 入站的端口。
-- **停止**：先关系统代理，再结束所有 `sing-box` 进程（包括不是本工具启动的）。
-- 菜单中可重新选择 sing-box 程序路径、配置文件和网络服务。
-- 日志：`~/Library/Logs/SingBoxBar.log`
+## Menu-bar icon / 图标含义
 
-默认路径：程序自动查找 Homebrew 等常见位置，配置为 `~/.config/sing-box/config.json`。
+| Icon / 图标 | Status | 状态 |
+|---|---|---|
+| 🟢 `● SB` | sing-box running, system SOCKS proxy on | sing-box 运行中，系统 SOCKS 代理已开 |
+| 🟠 `◐ SB` | sing-box running in background, system proxy off | sing-box 在后台运行，但系统代理没开 |
+| 🔴 `⚠ SB` | Proxy on but sing-box not running (no network) | 代理开着但 sing-box 没运行（会断网） |
+| ⚪ `○ SB` | Stopped | 已停止 |
 
-## 限制
+## Features / 功能
 
-- 只处理 socks / mixed 入站 + 系统 SOCKS 代理；TUN 模式需要 root，不在本工具范围内。
+- **Start**: runs `sing-box run -c <config>` and points the SOCKS proxy of the selected network service (default: Wi-Fi) at the first `socks` / `mixed` inbound in the config.
+  **启动**：运行 `sing-box run -c <config>`，并把所选网络服务（默认 Wi-Fi）的 SOCKS 代理指向配置中第一个 `socks` / `mixed` 入站的端口。
+- **Stop**: turns off the system proxy first, then terminates all `sing-box` processes (including ones not started by this app).
+  **停止**：先关系统代理，再结束所有 `sing-box` 进程（包括不是本工具启动的）。
+- The sing-box binary path, config file and network service can all be changed from the menu.
+  菜单中可重新选择 sing-box 程序路径、配置文件和网络服务。
+- Log file: `~/Library/Logs/SingBoxBar.log`
+  日志文件：`~/Library/Logs/SingBoxBar.log`
 
-## 许可 / License
+Defaults: the binary is auto-detected in common locations (Homebrew, etc.); the config defaults to `~/.config/sing-box/config.json`.
+
+默认路径：程序自动在 Homebrew 等常见位置查找；配置文件默认为 `~/.config/sing-box/config.json`。
+
+## Limitations / 限制
+
+- Only handles `socks` / `mixed` inbounds with the system SOCKS proxy. TUN mode requires root and is out of scope.
+  只处理 `socks` / `mixed` 入站 + 系统 SOCKS 代理；TUN 模式需要 root 权限，不在本工具范围内。
+
+## License / 许可
+
+[PolyForm Noncommercial 1.0.0](LICENSE.md): free to use, modify and share for noncommercial purposes only; **any commercial use is prohibited**.
 
 [PolyForm Noncommercial 1.0.0](LICENSE.md)：可自由使用、修改、分享，但**禁止任何形式的商业用途**。
-Free to use, modify and share for noncommercial purposes only; any commercial use is prohibited.
