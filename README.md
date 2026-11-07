@@ -36,3 +36,8 @@ bash install-singbox-bar.sh
 ## 限制
 
 - 只处理 socks / mixed 入站 + 系统 SOCKS 代理；TUN 模式需要 root，不在本工具范围内。
+
+## 许可 / License
+
+[PolyForm Noncommercial 1.0.0](LICENSE.md)：可自由使用、修改、分享，但**禁止任何形式的商业用途**。
+Free to use, modify and share for noncommercial purposes only; any commercial use is prohibited.
