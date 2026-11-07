@@ -8,6 +8,7 @@ APP="$HOME/Applications/SingBoxBar.app"
 WORK="$(mktemp -d)"
 
 if ! xcrun --find swiftc >/dev/null 2>&1; then
+  echo "Apple Command Line Tools are required; an installer window is opening. Run this script again when it finishes."
   echo "需要先安装苹果命令行工具，正在弹出安装窗口；装好后再运行一次本脚本。"
   xcode-select --install || true
   exit 1
@@ -20,6 +21,20 @@ let home = FileManager.default.homeDirectoryForCurrentUser.path
 let logPath = home + "/Library/Logs/SingBoxBar.log"
 let NS = "/usr/sbin/networksetup"
 let defaults = UserDefaults.standard
+
+// MARK: - Language
+
+/// UI language: saved choice, otherwise follow the system's preferred language.
+var isZh: Bool {
+    get {
+        if let v = defaults.string(forKey: "lang") { return v == "zh" }
+        return Locale.preferredLanguages.first?.hasPrefix("zh") ?? false
+    }
+    set { defaults.set(newValue ? "zh" : "en", forKey: "lang") }
+}
+func L(_ zh: String, _ en: String) -> String { isZh ? zh : en }
+
+// MARK: - Helpers
 
 @discardableResult
 func sh(_ path: String, _ args: [String]) -> (Int32, String) {
@@ -95,36 +110,46 @@ func alert(_ title: String, _ info: String = "") {
     a.runModal()
 }
 
+// MARK: - App
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let menu = NSMenu()
     let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     var startItem: NSMenuItem!
     var stopItem: NSMenuItem!
-    let binItem = NSMenuItem(title: "", action: #selector(pickBin), keyEquivalent: "")
-    let cfgItem = NSMenuItem(title: "", action: #selector(pickCfg), keyEquivalent: "")
+    var binItem: NSMenuItem!
+    var cfgItem: NSMenuItem!
     let svcItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     var child: Process?
 
     func applicationDidFinishLaunching(_ n: Notification) {
         menu.autoenablesItems = false
         statusLine.isEnabled = false
-        menu.addItem(statusLine)
-        menu.addItem(.separator())
-        startItem = add("启动 sing-box 并开代理", #selector(start), "s")
-        stopItem = add("停止 sing-box 并关代理", #selector(stop), "x")
-        menu.addItem(.separator())
-        for i in [binItem, cfgItem] { i.target = self; menu.addItem(i) }
         svcItem.submenu = NSMenu()
-        menu.addItem(svcItem)
-        add("查看日志", #selector(openLog), "l")
-        menu.addItem(.separator())
-        add("停止并退出", #selector(stopAndQuit), "")
-        add("退出（保持当前状态）", #selector(quit), "q")
         item.menu = menu
-        refresh()
+        buildMenu()
         Timer.scheduledTimer(timeInterval: 3, target: self, selector: #selector(refresh),
                              userInfo: nil, repeats: true)
+    }
+
+    /// (Re)creates every menu item in the current language.
+    func buildMenu() {
+        menu.removeAllItems()
+        menu.addItem(statusLine)
+        menu.addItem(.separator())
+        startItem = add(L("启动 sing-box 并开代理", "Start sing-box & enable proxy"), #selector(start), "s")
+        stopItem  = add(L("停止 sing-box 并关代理", "Stop sing-box & disable proxy"), #selector(stop), "x")
+        menu.addItem(.separator())
+        binItem = add("", #selector(pickBin), "")
+        cfgItem = add("", #selector(pickCfg), "")
+        menu.addItem(svcItem)
+        add(L("查看日志", "Show Log"), #selector(openLog), "l")
+        add(L("Switch to English", "切换到中文"), #selector(toggleLanguage), "")
+        menu.addItem(.separator())
+        add(L("停止并退出", "Stop & Quit"), #selector(stopAndQuit), "")
+        add(L("退出（保持当前状态）", "Quit (keep current state)"), #selector(quit), "q")
+        refresh()
     }
 
     @discardableResult
@@ -148,16 +173,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func refresh() {
         let running = isRunning(), proxy = proxyEnabled()
         switch (running, proxy) {
-        case (true, true):  setTitle("●", .systemGreen,  "运行中 · \(service) SOCKS 代理已开")
-        case (true, false): setTitle("◐", .systemOrange, "sing-box 在运行，但系统代理没开")
-        case (false, true): setTitle("⚠", .systemRed,    "代理开着但 sing-box 没运行（会断网）")
-        default:            setTitle("○", .secondaryLabelColor, "已停止")
+        case (true, true):
+            setTitle("●", .systemGreen,
+                     L("运行中 · \(service) SOCKS 代理已开", "Running · \(service) SOCKS proxy on"))
+        case (true, false):
+            setTitle("◐", .systemOrange,
+                     L("sing-box 在运行，但系统代理没开", "sing-box running, but system proxy is off"))
+        case (false, true):
+            setTitle("⚠", .systemRed,
+                     L("代理开着但 sing-box 没运行（会断网）", "Proxy on but sing-box not running (no network)"))
+        default:
+            setTitle("○", .secondaryLabelColor, L("已停止", "Stopped"))
         }
         startItem.isEnabled = !(running && proxy)
         stopItem.isEnabled = running || proxy
-        binItem.title = "程序：\(binPath)"
-        cfgItem.title = "配置：\(cfgPath)"
-        svcItem.title = "网络服务：\(service)"
+        binItem.title = L("程序：", "Binary: ") + binPath
+        cfgItem.title = L("配置：", "Config: ") + cfgPath
+        svcItem.title = L("网络服务：", "Network service: ") + service
         let sub = svcItem.submenu!
         sub.removeAllItems()
         for s in networkServices() {
@@ -170,13 +202,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func start() {
         guard let (host, port) = socksEndpoint() else {
-            alert("配置里找不到 socks 或 mixed 入站",
-                  "请确认配置文件路径正确，且 inbounds 里有 type 为 socks/mixed、带 listen_port 的条目。\n\n\(cfgPath)")
+            alert(L("配置里找不到 socks 或 mixed 入站", "No socks or mixed inbound found in config"),
+                  L("请确认配置文件路径正确，且 inbounds 里有 type 为 socks/mixed、带 listen_port 的条目。",
+                    "Make sure the config path is correct and `inbounds` contains an entry of type socks/mixed with a listen_port.")
+                  + "\n\n\(cfgPath)")
             return
         }
         if !isRunning() {
             guard FileManager.default.isExecutableFile(atPath: binPath) else {
-                alert("找不到 sing-box 程序", binPath + "\n\n请在菜单里点“程序：”重新选择。"); return
+                alert(L("找不到 sing-box 程序", "sing-box binary not found"),
+                      binPath + "\n\n" + L("请在菜单里点“程序：”重新选择。",
+                                           "Click “Binary:” in the menu to choose it."))
+                return
             }
             FileManager.default.createFile(atPath: logPath, contents: nil)
             let p = Process()
@@ -186,21 +223,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if let fh = FileHandle(forWritingAtPath: logPath) {
                 p.standardOutput = fh; p.standardError = fh
             }
-            do { try p.run() } catch { alert("启动失败", "\(error)"); return }
+            do { try p.run() } catch {
+                alert(L("启动失败", "Failed to start"), "\(error)"); return
+            }
             child = p
             Thread.sleep(forTimeInterval: 1.0)
             if !p.isRunning {
-                alert("sing-box 启动后马上退出了", logTail()); refresh(); return
+                alert(L("sing-box 启动后马上退出了", "sing-box exited right after starting"), logTail())
+                refresh(); return
             }
         }
         let r1 = sh(NS, ["-setsocksfirewallproxy", service, host, String(port)])
         let r2 = sh(NS, ["-setsocksfirewallproxystate", service, "on"])
-        if r1.0 != 0 || r2.0 != 0 { alert("设置系统代理失败", r1.1 + r2.1) }
+        if r1.0 != 0 || r2.0 != 0 {
+            alert(L("设置系统代理失败", "Failed to set system proxy"), r1.1 + r2.1)
+        }
         refresh()
     }
 
     @objc func stop() {
-        // 先关代理，避免代理指向一个已经不存在的端口
+        // Disable the proxy first so it never points at a dead port.
+        // 先关代理，避免代理指向一个已经不存在的端口。
         sh(NS, ["-setsocksfirewallproxystate", service, "off"])
         child?.terminate(); child = nil
         sh("/usr/bin/pkill", ["-x", "sing-box"])
@@ -223,6 +266,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if proxyEnabled() { sh(NS, ["-setsocksfirewallproxystate", service, "off"]) }
         service = i.title; refresh()
     }
+    @objc func toggleLanguage() { isZh.toggle(); buildMenu() }
     @objc func openLog() {
         if !FileManager.default.fileExists(atPath: logPath) {
             FileManager.default.createFile(atPath: logPath, contents: nil)
@@ -243,7 +287,7 @@ SWIFT
 pkill -x SingBoxBar 2>/dev/null || true
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
-echo "正在编译…"
+echo "Compiling… / 正在编译…"
 xcrun swiftc -O "$WORK/main.swift" -o "$APP/Contents/MacOS/SingBoxBar"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -255,7 +299,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>local.singboxbar</string>
   <key>CFBundleExecutable</key><string>SingBoxBar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleVersion</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1.1</string>
   <key>LSUIElement</key><true/>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
 </dict>
@@ -265,5 +309,7 @@ PLIST
 codesign --force -s - "$APP" >/dev/null 2>&1 || true
 rm -rf "$WORK"
 open "$APP"
-echo "装好了：$APP"
-echo "右上角会出现“● SB / ○ SB”图标。想开机自动运行：系统设置 → 通用 → 登录项 → 添加 SingBoxBar。"
+echo "Installed / 装好了: $APP"
+echo "Look for the “● SB / ○ SB” icon in the menu bar. / 右上角会出现“● SB / ○ SB”图标。"
+echo "Launch at login: System Settings → General → Login Items → add SingBoxBar."
+echo "开机自动运行：系统设置 → 通用 → 登录项 → 添加 SingBoxBar。"
