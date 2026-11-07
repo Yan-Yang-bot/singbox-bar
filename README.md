@@ -20,6 +20,32 @@ To launch at login: System Settings → General → Login Items → add SingBoxB
 
 开机自动运行：系统设置 → 通用 → 登录项 → 添加 SingBoxBar。
 
+## Updating / 升级
+
+From v1.2.0 on, click **Check for Updates…** in the menu. If a newer version is tagged on GitHub, the app downloads it, rebuilds itself locally (about a minute) and restarts. sing-box and the system proxy are not affected.
+
+从 v1.2.0 起，点菜单里的 **检查更新…**。如果 GitHub 上有更新的版本号，App 会自动下载、在本机重新编译安装（约一分钟）并重启。sing-box 和系统代理的状态不受影响。
+
+Older versions: run `git pull && bash install-singbox-bar.sh` in the repo folder (the installer replaces the old app).
+
+更早的版本：在仓库目录里运行 `git pull && bash install-singbox-bar.sh`（安装脚本会自动替换旧版本）。
+
+## Uninstalling / 卸载
+
+```bash
+bash uninstall.sh
+```
+
+Removes the app, its settings and logs. sing-box itself, its config and the current system proxy setting are left untouched.
+
+删除 App、它的设置和日志。不会动 sing-box 本身、它的配置文件，以及当前的系统代理设置。
+
+## Releasing (maintainers) / 发布新版本（维护者）
+
+Just tag a commit: `git tag vX.Y.Z && git push --tags` (or create a Release on GitHub). The version is taken from the tag — nothing is hard-coded. Installing from an untagged commit shows e.g. `v1.2.0-3-gabc123`; with no tags at all, `v0.0.0-dev`.
+
+只需给提交打标签：`git tag vX.Y.Z && git push --tags`（或在 GitHub 上建 Release）。版本号直接取自标签，不写死在代码里。从未打标签的提交安装会显示类似 `v1.2.0-3-gabc123`；仓库完全没有标签时显示 `v0.0.0-dev`。
+
 ## Menu-bar icon / 图标含义
 
 | Icon / 图标 | Status | 状态 |

@@ -4,6 +4,13 @@
 # Usage:  bash install-singbox-bar.sh
 set -e
 
+# Version comes from git, never hard-coded / 版本号取自 git，不写死:
+#   - in-app updates pass the tag via SINGBOXBAR_VERSION / 应用内升级通过 SINGBOXBAR_VERSION 传入标签
+#   - otherwise `git describe --tags` (e.g. v1.2.0, or v1.2.0-3-gabc123 for untagged commits)
+#   - no tag at all → 0.0.0-dev
+SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERSION="${SINGBOXBAR_VERSION:-$(git -C "$SRC_DIR" describe --tags 2>/dev/null || echo 0.0.0-dev)}"
+VERSION="${VERSION#v}"
 APP="$HOME/Applications/SingBoxBar.app"
 WORK="$(mktemp -d)"
 
@@ -21,6 +28,9 @@ let home = FileManager.default.homeDirectoryForCurrentUser.path
 let logPath = home + "/Library/Logs/SingBoxBar.log"
 let NS = "/usr/sbin/networksetup"
 let defaults = UserDefaults.standard
+let appVersion = "__VERSION__"
+let repo = "Yan-Yang-bot/singbox-bar"
+let updateLog = home + "/Library/Logs/SingBoxBar-update.log"
 
 // MARK: - Language
 
@@ -102,6 +112,42 @@ func logTail() -> String {
     return String(s.suffix(800))
 }
 
+// MARK: - Updates
+
+/// "v1.2.0" / "1.2.0-3-gabc123" / "0.0.0-dev" → [1,2,0] / [1,2,0] / [0,0,0]
+func parseVer(_ s: String) -> [Int] {
+    var t = Substring(s)
+    if t.first == "v" || t.first == "V" { t = t.dropFirst() }
+    let core = t.split(whereSeparator: { $0 == "-" || $0 == "+" }).first ?? ""
+    return core.split(separator: ".").map { Int($0) ?? 0 }
+}
+func isNewer(_ a: String, than b: String) -> Bool {
+    let x = parseVer(a), y = parseVer(b)
+    for i in 0..<max(x.count, y.count) {
+        let p = i < x.count ? x[i] : 0, q = i < y.count ? y[i] : 0
+        if p != q { return p > q }
+    }
+    return false
+}
+
+/// Highest `v*` tag on GitHub, or nil on failure. URLSession honours the system proxy.
+func fetchLatestTag(_ done: @escaping (String?) -> Void) {
+    var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/tags?per_page=100")!)
+    req.setValue("SingBoxBar", forHTTPHeaderField: "User-Agent")
+    req.timeoutInterval = 15
+    URLSession.shared.dataTask(with: req) { data, _, _ in
+        var best: String?
+        if let data = data,
+           let arr = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] {
+            for t in arr {
+                guard let n = t["name"] as? String, n.hasPrefix("v") else { continue }
+                if best == nil || isNewer(n, than: best!) { best = n }
+            }
+        }
+        DispatchQueue.main.async { done(best) }
+    }.resume()
+}
+
 func alert(_ title: String, _ info: String = "") {
     NSApp.activate(ignoringOtherApps: true)
     let a = NSAlert()
@@ -121,6 +167,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var binItem: NSMenuItem!
     var cfgItem: NSMenuItem!
     let svcItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    var updateItem: NSMenuItem!
+    var latestTag: String?
+    var updating = false
     var child: Process?
 
     func applicationDidFinishLaunching(_ n: Notification) {
@@ -129,6 +178,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         svcItem.submenu = NSMenu()
         item.menu = menu
         buildMenu()
+        fetchLatestTag { [weak self] t in self?.latestTag = t; self?.refresh() }
         Timer.scheduledTimer(timeInterval: 3, target: self, selector: #selector(refresh),
                              userInfo: nil, repeats: true)
     }
@@ -146,6 +196,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(svcItem)
         add(L("查看日志", "Show Log"), #selector(openLog), "l")
         add(L("Switch to English", "切换到中文"), #selector(toggleLanguage), "")
+        menu.addItem(.separator())
+        let ver = NSMenuItem(title: "SingBoxBar v\(appVersion)", action: nil, keyEquivalent: "")
+        ver.isEnabled = false
+        menu.addItem(ver)
+        updateItem = add("", #selector(checkUpdate), "u")
         menu.addItem(.separator())
         add(L("停止并退出", "Stop & Quit"), #selector(stopAndQuit), "")
         add(L("退出（保持当前状态）", "Quit (keep current state)"), #selector(quit), "q")
@@ -190,6 +245,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         binItem.title = L("程序：", "Binary: ") + binPath
         cfgItem.title = L("配置：", "Config: ") + cfgPath
         svcItem.title = L("网络服务：", "Network service: ") + service
+        if updating {
+            updateItem.title = L("正在升级，完成后自动重启…", "Updating, will restart when done…")
+            updateItem.isEnabled = false
+        } else if let t = latestTag, isNewer(t, than: appVersion) {
+            updateItem.title = L("⬆ 升级到 \(t)…", "⬆ Update to \(t)…")
+            updateItem.isEnabled = true
+        } else {
+            updateItem.title = L("检查更新…", "Check for Updates…")
+            updateItem.isEnabled = true
+        }
         let sub = svcItem.submenu!
         sub.removeAllItems()
         for s in networkServices() {
@@ -267,6 +332,74 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         service = i.title; refresh()
     }
     @objc func toggleLanguage() { isZh.toggle(); buildMenu() }
+
+    @objc func checkUpdate() {
+        fetchLatestTag { [weak self] tag in
+            guard let self = self else { return }
+            if let tag = tag { self.latestTag = tag }
+            self.refresh()
+            guard let t = tag else {
+                alert(L("检查更新失败", "Update check failed"),
+                      L("无法连接 GitHub，请检查网络后重试。",
+                        "Could not reach GitHub. Check your network and try again."))
+                return
+            }
+            guard isNewer(t, than: appVersion) else {
+                alert(L("已是最新版本", "You're up to date"), "v\(appVersion)")
+                return
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            let a = NSAlert()
+            a.messageText = L("发现新版本 \(t)", "New version \(t) available")
+            a.informativeText = L(
+                "当前版本 v\(appVersion)。升级会从 GitHub 下载源码并在本机重新编译安装，约需一分钟，完成后 App 自动重启。sing-box 和系统代理的状态不受影响。",
+                "Current version: v\(appVersion). The update downloads the source from GitHub and rebuilds the app locally (about a minute), then restarts it. sing-box and the system proxy are not affected.")
+            a.addButton(withTitle: L("立即升级", "Update Now"))
+            a.addButton(withTitle: L("取消", "Cancel"))
+            if a.runModal() == .alertFirstButtonReturn { self.performUpdate(t) }
+        }
+    }
+
+    /// Downloads the tag's source tarball and runs its installer detached;
+    /// the installer quits this app, rebuilds it and relaunches the new version.
+    func performUpdate(_ tag: String) {
+        updating = true
+        refresh()
+        let url = URL(string: "https://codeload.github.com/\(repo)/tar.gz/refs/tags/\(tag)")!
+        URLSession.shared.downloadTask(with: url) { tmp, resp, err in
+            let dir = NSTemporaryDirectory() + "singboxbar-update-" + UUID().uuidString
+            var ok = false
+            if let tmp = tmp, (resp as? HTTPURLResponse)?.statusCode == 200 {
+                try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+                ok = (try? FileManager.default.moveItem(atPath: tmp.path, toPath: dir + "/src.tgz")) != nil
+            }
+            DispatchQueue.main.async {
+                guard ok else {
+                    self.updating = false
+                    self.refresh()
+                    alert(L("下载失败", "Download failed"), err?.localizedDescription ?? "")
+                    return
+                }
+                let script = """
+                #!/bin/bash
+                set -e
+                cd "\(dir)"
+                tar -xzf src.tgz
+                S="$(find . -maxdepth 2 -name install-singbox-bar.sh | head -1)"
+                SINGBOXBAR_VERSION="\(tag)" bash "$S"
+                """
+                try? script.write(toFile: dir + "/update.sh", atomically: true, encoding: .utf8)
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: "/bin/bash")
+                p.arguments = ["-c", "nohup /bin/bash '\(dir)/update.sh' > '\(updateLog)' 2>&1 &"]
+                do { try p.run() } catch {
+                    self.updating = false
+                    self.refresh()
+                    alert(L("升级失败", "Update failed"), "\(error)")
+                }
+            }
+        }.resume()
+    }
     @objc func openLog() {
         if !FileManager.default.fileExists(atPath: logPath) {
             FileManager.default.createFile(atPath: logPath, contents: nil)
@@ -283,6 +416,8 @@ app.delegate = delegate
 app.setActivationPolicy(.accessory)
 app.run()
 SWIFT
+sed -i '' "s|__VERSION__|$VERSION|" "$WORK/main.swift"
+SHORT_VERSION="${VERSION%%-*}"
 
 pkill -x SingBoxBar 2>/dev/null || true
 rm -rf "$APP"
@@ -290,7 +425,7 @@ mkdir -p "$APP/Contents/MacOS"
 echo "Compiling… / 正在编译…"
 xcrun swiftc -O "$WORK/main.swift" -o "$APP/Contents/MacOS/SingBoxBar"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -299,7 +434,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>local.singboxbar</string>
   <key>CFBundleExecutable</key><string>SingBoxBar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleVersion</key><string>1.1</string>
+  <key>CFBundleVersion</key><string>$SHORT_VERSION</string>
+  <key>CFBundleShortVersionString</key><string>$SHORT_VERSION</string>
   <key>LSUIElement</key><true/>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
 </dict>
@@ -309,7 +445,7 @@ PLIST
 codesign --force -s - "$APP" >/dev/null 2>&1 || true
 rm -rf "$WORK"
 open "$APP"
-echo "Installed / 装好了: $APP"
+echo "Installed v$VERSION / 已安装 v$VERSION: $APP"
 echo "Look for the “● SB / ○ SB” icon in the menu bar. / 右上角会出现“● SB / ○ SB”图标。"
 echo "Launch at login: System Settings → General → Login Items → add SingBoxBar."
 echo "开机自动运行：系统设置 → 通用 → 登录项 → 添加 SingBoxBar。"
