@@ -22,9 +22,9 @@ To launch at login: System Settings → General → Login Items → add SingBoxB
 
 ## Updating / 升级
 
-From v1.2.0 on, click **Check for Updates…** in the menu. If a newer version is tagged on GitHub, the app downloads it, rebuilds itself locally (about a minute) and restarts. sing-box and the system proxy are not affected.
+From v1.2.0 on, click **Check for Updates… (current vX.Y.Z)** in the menu. If a newer version is tagged on GitHub, the app downloads it, rebuilds itself locally (about a minute) and restarts. sing-box and the system proxy are not affected.
 
-从 v1.2.0 起，点菜单里的 **检查更新…**。如果 GitHub 上有更新的版本号，App 会自动下载、在本机重新编译安装（约一分钟）并重启。sing-box 和系统代理的状态不受影响。
+从 v1.2.0 起，点菜单里的 **检查更新…（当前 vX.Y.Z）**。如果 GitHub 上有更新的版本号，App 会自动下载、在本机重新编译安装（约一分钟）并重启。sing-box 和系统代理的状态不受影响。
 
 Older versions: run `git pull && bash install-singbox-bar.sh` in the repo folder (the installer replaces the old app).
 

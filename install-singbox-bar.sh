@@ -197,9 +197,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         add(L("查看日志", "Show Log"), #selector(openLog), "l")
         add(L("Switch to English", "切换到中文"), #selector(toggleLanguage), "")
         menu.addItem(.separator())
-        let ver = NSMenuItem(title: "SingBoxBar v\(appVersion)", action: nil, keyEquivalent: "")
-        ver.isEnabled = false
-        menu.addItem(ver)
         updateItem = add("", #selector(checkUpdate), "u")
         menu.addItem(.separator())
         add(L("停止并退出", "Stop & Quit"), #selector(stopAndQuit), "")
@@ -246,13 +243,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         cfgItem.title = L("配置：", "Config: ") + cfgPath
         svcItem.title = L("网络服务：", "Network service: ") + service
         if updating {
-            updateItem.title = L("正在升级，完成后自动重启…", "Updating, will restart when done…")
+            updateItem.title = L("正在升级，完成后自动重启…（当前 v\(appVersion)）", "Updating, will restart when done… (current v\(appVersion))")
             updateItem.isEnabled = false
         } else if let t = latestTag, isNewer(t, than: appVersion) {
-            updateItem.title = L("⬆ 升级到 \(t)…", "⬆ Update to \(t)…")
+            updateItem.title = L("⬆ 升级到 \(t)…（当前 v\(appVersion)）", "⬆ Update to \(t)… (current v\(appVersion))")
             updateItem.isEnabled = true
         } else {
-            updateItem.title = L("检查更新…", "Check for Updates…")
+            updateItem.title = L("检查更新…（当前 v\(appVersion)）", "Check for Updates… (current v\(appVersion))")
             updateItem.isEnabled = true
         }
         let sub = svcItem.submenu!
