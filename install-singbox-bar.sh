@@ -130,21 +130,23 @@ func isNewer(_ a: String, than b: String) -> Bool {
     return false
 }
 
-/// Highest `v*` tag on GitHub, or nil on failure. URLSession honours the system proxy.
-func fetchLatestTag(_ done: @escaping (String?) -> Void) {
+/// Calls back with (reached GitHub?, highest `v*` tag or nil if none). URLSession honours the system proxy.
+func fetchLatestTag(_ done: @escaping (Bool, String?) -> Void) {
     var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/tags?per_page=100")!)
     req.setValue("SingBoxBar", forHTTPHeaderField: "User-Agent")
     req.timeoutInterval = 15
-    URLSession.shared.dataTask(with: req) { data, _, _ in
+    URLSession.shared.dataTask(with: req) { data, resp, _ in
         var best: String?
-        if let data = data,
+        var reached = false
+        if let data = data, (resp as? HTTPURLResponse)?.statusCode == 200,
            let arr = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] {
+            reached = true
             for t in arr {
                 guard let n = t["name"] as? String, n.hasPrefix("v") else { continue }
                 if best == nil || isNewer(n, than: best!) { best = n }
             }
         }
-        DispatchQueue.main.async { done(best) }
+        DispatchQueue.main.async { done(reached, best) }
     }.resume()
 }
 
@@ -178,7 +180,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         svcItem.submenu = NSMenu()
         item.menu = menu
         buildMenu()
-        fetchLatestTag { [weak self] t in self?.latestTag = t; self?.refresh() }
+        fetchLatestTag { [weak self] _, t in self?.latestTag = t; self?.refresh() }
         Timer.scheduledTimer(timeInterval: 3, target: self, selector: #selector(refresh),
                              userInfo: nil, repeats: true)
     }
@@ -331,14 +333,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func toggleLanguage() { isZh.toggle(); buildMenu() }
 
     @objc func checkUpdate() {
-        fetchLatestTag { [weak self] tag in
+        fetchLatestTag { [weak self] reached, tag in
             guard let self = self else { return }
             if let tag = tag { self.latestTag = tag }
             self.refresh()
-            guard let t = tag else {
+            guard reached else {
                 alert(L("检查更新失败", "Update check failed"),
                       L("无法连接 GitHub，请检查网络后重试。",
                         "Could not reach GitHub. Check your network and try again."))
+                return
+            }
+            guard let t = tag else {
+                alert(L("GitHub 上还没有发布任何版本", "No releases on GitHub yet"),
+                      L("仓库里还没有 v 开头的版本标签。", "The repository has no v* version tags yet."))
                 return
             }
             guard isNewer(t, than: appVersion) else {
