@@ -72,6 +72,27 @@ Defaults: the binary is auto-detected in common locations (Homebrew, etc.); the 
 
 默认路径：程序自动在 Homebrew 等常见位置查找；配置文件默认为 `~/.config/sing-box/config.json`。
 
+## Logs and model diagnostics / 日志与大模型诊断
+
+- **Show Log (last 500 lines)** opens a live, selectable log window. Lines containing `error` (case insensitive) are red; terminal colour codes are removed.
+  **查看日志（最近 500 行）**打开自动刷新的日志窗口；含 `error`（不区分大小写）的行标红，并移除终端颜色控制符。
+- A separate logger retains only the latest 500 lines in `~/Library/Logs/SingBoxBar.log`, including partial lines. It keeps running when you quit the menu app without stopping sing-box, or update the app.
+  独立日志采集器将日志文件限制为最后 500 行（包括未换行的行）；保持状态退出或升级 App 后仍继续采集。
+- Open **Log Diagnostic Settings…**, enter your provider's complete Chat Completions endpoint URL (including `/chat/completions`), model name and API key, then choose **Analyze Logs…**. Local compatible servers can use a blank key. HTTPS is required except for loopback HTTP addresses. Keys are stored in macOS Keychain; saving a blank key removes the saved key.
+  在**日志诊断设置…**中填写兼容 Chat Completions 的完整接口地址（含 `/chat/completions`）、模型名称与 API Key，然后点**分析日志…**。本机兼容服务可不填 Key；除本机地址外必须使用 HTTPS。Key 保存在 macOS 钥匙串中；保存空 Key 会删除原 Key。
+- Analysis sends a snapshot of up to 500 recent log lines to your configured provider **only when you click Analyze Logs**. Logs may contain private addresses and connection details. The report provides model-generated findings, likely causes and suggested checks; it never changes your proxy or configuration. Network/API failures appear in the report window; no automatic retries or background uploads occur.
+  **仅点击分析日志时**，才向你配置的服务发送最近最多 500 行的日志快照。日志可能包含隐私地址与连接信息。报告给出模型生成的发现、可能原因和排查建议，不会修改代理或配置。网络或接口失败会显示在报告窗口中，不自动重试或后台上传。
+
+Logging captures stdout/stderr of sing-box started by this version of the app. After upgrading from an older version, stop and start sing-box once to enable bounded capture. Processes started elsewhere, or sing-box configurations that write logs to another file, are not captured.
+
+日志采集针对本版本 App 启动的 sing-box 标准输出与错误输出。首次从旧版升级后，请停止并重新启动一次 sing-box，启用限长采集。外部启动的进程以及配置为另写日志文件的输出不在采集范围内。
+
+## Development checks / 开发检查
+
+On macOS with Command Line Tools installed, run `bash Tests/check.sh`. This compiles the app without installing it, tests the rolling buffer, and runs the logger against a fake process (stdout/stderr, live retention, split UTF-8, partial lines and startup failures). GitHub Actions runs the same checks on macOS. Model analysis requires a configured compatible endpoint for manual end-to-end testing.
+
+在已安装命令行工具的 macOS 上运行 `bash Tests/check.sh`，可在不安装 App 的情况下编译程序并测试日志功能；GitHub Actions 也会运行这些检查。模型诊断的端到端手动测试需要配置兼容接口。
+
 ## Limitations / 限制
 
 - Only handles `socks` / `mixed` inbounds with the system SOCKS proxy. TUN mode requires root and is out of scope.

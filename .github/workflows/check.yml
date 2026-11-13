@@ -1,0 +1,11 @@
+name: macOS build and log tests
+on:
+  push:
+  pull_request:
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile app and run log tests
+        run: bash Tests/check.sh

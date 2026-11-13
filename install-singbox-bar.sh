@@ -108,7 +108,7 @@ func networkServices() -> [String] {
 }
 
 func logTail() -> String {
-    let s = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
+    let s = plainLog(readLog(logPath))
     return String(s.suffix(800))
 }
 
@@ -173,6 +173,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var latestTag: String?
     var updating = false
     var child: Process?
+    var logWindow: TextWindow?
+    var reportWindow: TextWindow?
+    let diagnosticClient = DiagnosticClient()
+    var analyzing = false
+    var analyzeItem: NSMenuItem!
 
     func applicationDidFinishLaunching(_ n: Notification) {
         menu.autoenablesItems = false
@@ -196,7 +201,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         binItem = add("", #selector(pickBin), "")
         cfgItem = add("", #selector(pickCfg), "")
         menu.addItem(svcItem)
-        add(L("查看日志", "Show Log"), #selector(openLog), "l")
+        add(L("查看日志（最近 500 行）", "Show Log (last 500 lines)"), #selector(openLog), "l")
+        analyzeItem = add(L("分析日志…", "Analyze Logs…"), #selector(analyzeLogs), "d")
+        add(L("日志诊断设置…", "Log Diagnostic Settings…"), #selector(configureDiagnostics), "")
         add(L("Switch to English", "切换到中文"), #selector(toggleLanguage), "")
         menu.addItem(.separator())
         updateItem = add("", #selector(checkUpdate), "u")
@@ -225,6 +232,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func refresh() {
+        if logWindow?.window.isVisible == true { refreshLogWindow() }
+        analyzeItem.title = analyzing ? L("正在分析日志…", "Analyzing logs…") : L("分析日志…", "Analyze Logs…")
+        analyzeItem.isEnabled = !analyzing
         let running = isRunning(), proxy = proxyEnabled()
         switch (running, proxy) {
         case (true, true):
@@ -279,14 +289,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                            "Click “Binary:” in the menu to choose it."))
                 return
             }
-            FileManager.default.createFile(atPath: logPath, contents: nil)
             let p = Process()
-            p.executableURL = URL(fileURLWithPath: binPath)
-            p.arguments = ["run", "-c", cfgPath]
-            p.currentDirectoryURL = URL(fileURLWithPath: (cfgPath as NSString).deletingLastPathComponent)
-            if let fh = FileHandle(forWritingAtPath: logPath) {
-                p.standardOutput = fh; p.standardError = fh
-            }
+            p.executableURL = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/SingBoxBarLogger")
+            p.arguments = [binPath, cfgPath, logPath]
+            p.standardInput = FileHandle.nullDevice
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
             do { try p.run() } catch {
                 alert(L("启动失败", "Failed to start"), "\(error)"); return
             }
@@ -309,8 +317,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Disable the proxy first so it never points at a dead port.
         // 先关代理，避免代理指向一个已经不存在的端口。
         sh(NS, ["-setsocksfirewallproxystate", service, "off"])
-        child?.terminate(); child = nil
+        // Let the logger drain the pipe and exit when sing-box closes it.
         sh("/usr/bin/pkill", ["-x", "sing-box"])
+        child = nil
         for _ in 0..<20 where isRunning() { Thread.sleep(forTimeInterval: 0.1) }
         if isRunning() { sh("/usr/bin/pkill", ["-9", "-x", "sing-box"]) }
         refresh()
@@ -404,11 +413,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }.resume()
     }
+    func refreshLogWindow() {
+        let text = plainLog(readLog(logPath))
+        logWindow?.update(text.isEmpty ? L("暂无日志。", "No logs yet.") : text, highlightErrors: true)
+    }
     @objc func openLog() {
-        if !FileManager.default.fileExists(atPath: logPath) {
-            FileManager.default.createFile(atPath: logPath, contents: nil)
+        if logWindow == nil { logWindow = TextWindow(title: L("sing-box 日志 · 最近 500 行", "sing-box Log · Last 500 Lines")) }
+        refreshLogWindow()
+        logWindow?.show()
+    }
+    @objc func configureDiagnostics() { DiagnosticSettings.configure() }
+    @objc func analyzeLogs() {
+        guard !analyzing else { return }
+        let logs = plainLog(readLog(logPath))
+        guard !logs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            alert(L("暂无可分析的日志", "No logs to analyze")); return
         }
-        NSWorkspace.shared.open(URL(fileURLWithPath: logPath))
+        if DiagnosticSettings.validatedURL(DiagnosticSettings.endpoint) == nil || DiagnosticSettings.model.isEmpty {
+            guard DiagnosticSettings.configure() else { return }
+        }
+        analyzing = true
+        if reportWindow == nil { reportWindow = TextWindow(title: L("日志诊断报告", "Log Diagnostic Report")) }
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .medium)
+        let header = "\(timestamp) · \(DiagnosticSettings.model)\n\(DiagnosticSettings.endpoint)\n\n"
+        reportWindow?.update(header + L("正在分析日志快照…", "Analyzing log snapshot…"))
+        reportWindow?.show()
+        refresh()
+        diagnosticClient.analyze(logs) { [weak self] result in
+            guard let self = self else { return }
+            self.analyzing = false
+            switch result {
+            case .success(let report):
+                self.reportWindow?.update(header + L("模型生成的建议，请核实后操作。\n\n", "Model-generated advice; verify before acting.\n\n") + report)
+            case .failure(let error):
+                self.reportWindow?.update(header + L("分析失败：", "Analysis failed: ") + error.localizedDescription)
+            }
+            self.reportWindow?.show()
+            self.refresh()
+        }
     }
     @objc func stopAndQuit() { stop(); NSApp.terminate(nil) }
     @objc func quit() { NSApp.terminate(nil) }
@@ -427,7 +469,11 @@ pkill -x SingBoxBar 2>/dev/null || true
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 echo "Compiling… / 正在编译…"
-xcrun swiftc -O "$WORK/main.swift" -o "$APP/Contents/MacOS/SingBoxBar"
+xcrun swiftc -O "$WORK/main.swift" "$SRC_DIR/Sources/LogStore.swift" \
+  "$SRC_DIR/Sources/Diagnostics.swift" "$SRC_DIR/Sources/TextWindow.swift" \
+  -o "$APP/Contents/MacOS/SingBoxBar"
+xcrun swiftc -O "$SRC_DIR/Sources/LogStore.swift" "$SRC_DIR/Sources/LogCapture.swift" \
+  -o "$APP/Contents/MacOS/SingBoxBarLogger"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
